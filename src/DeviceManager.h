@@ -1,0 +1,72 @@
+#pragma once
+// =============================================================================
+// DeviceManager.h — Hardware GPIO & Actuator Control
+// =============================================================================
+// Abstracts all hardware pin definitions, LED states, and physical I/O from
+// the networking layer. Controls all zonal lights matching the web dashboard:
+//   - Light 1 (Zone A) : GPIO 2 (Board LED)
+//   - Light 2 (Zone B) : GPIO 4
+//   - Light 3 (Zone C) : GPIO 5
+//   - Party / Beacon   : GPIO 23
+// =============================================================================
+
+#include <Arduino.h>
+
+namespace DeviceManager {
+
+  // ---- Pin Assignments (Matching Cloud & Web Dashboard) ----
+  constexpr int PIN_LIGHT1      = 4;   // Light 1 (Zone A)
+  constexpr int PIN_LIGHT2      = 5;   // Light 2 (Zone B)
+  constexpr int PIN_LIGHT3      = 18;   // Light 3 (Zone C)
+  constexpr int PIN_LIGHT4      = 12;  // Light 4 (Zone D)
+  constexpr int PIN_LIGHT5      = 13;  // Light 5 (Zone E)
+  constexpr int PIN_PARTY_LIGHT     = 2;    // Party / Beacon Light (Independent device, e.g. GPIO 2)
+  constexpr int PIN_LED_BOARD       = 2;    // Onboard LED
+
+  // ---- Dedicated LDR Sensor & Relay Control (No storage, pure real-time) ----
+  constexpr int PIN_LDR                        = 34;   // LDR Sensor Input (GPIO 34, ADC1_CH6)
+  constexpr int PIN_RELAY_LDR                  = 23;   // Relay / Light Output Pin (GPIO 23)
+  // Logic: analogRead == 0 -> Night (Light/Relay ON) | analogRead > 0 -> Day (Light/Relay OFF)
+
+  // ---- 2-Position Rocker Switch ('O' = ON, '-' = OFF) for Lights 1, 2, 3 ----
+  constexpr int PIN_SW_LIGHT1       = 19;   // Rocker Switch 1 (GPIO 19 -> Light 1)
+  constexpr int PIN_SW_LIGHT2       = 21;   // Rocker Switch 2 (GPIO 21 -> Light 2)
+  constexpr int PIN_SW_LIGHT3       = 22;   // Rocker Switch 3 (GPIO 22 -> Light 3)
+  // Switch Polarity with INPUT_PULLUP:
+  // Set to true if 'O' position is open (HIGH) and '-' is GND (LOW) [Standard]
+  // Set to false if 'O' position is GND (LOW) and '-' is open (HIGH)
+  constexpr bool SWITCH_O_IS_HIGH   = true;
+
+  // ---- Boom Gate (SG90 Servo 180° restricted to 0° - 90°) ----
+  constexpr int PIN_BOOM_GATE_SERVO = 27;  // SG90 Servo Signal (PWM GPIO 27)
+  constexpr int GATE_ANGLE_CLOSED   = 0;   // 0° = Barrier horizontal (Closed)
+  constexpr int GATE_ANGLE_OPEN     = 90;  // 90° = Barrier vertical (Open)
+
+  // ---- Sound Sensor (Double Clap Detection) ----
+  constexpr int PIN_SOUND_SENSOR       = 35;          // Sound Sensor Digital Output DO (GPIO 35)
+  constexpr bool SOUND_ACTIVE_LOW      = true;        // Standard LM393 sensor pulls DO LOW on sound
+  constexpr const char* SOUND_TARGET   = "light-1";   // Target device ("light-1", "all_lights", etc.)
+  constexpr bool SOUND_TOGGLE_MODE     = true;        // true: toggle ON/OFF, false: turn ON only
+
+  // ---- Lifecycle ----
+  void init();                                    // Configure all GPIO pins & LDR sensor
+  void update();                                  // Periodic tasks (LDR, Switches, Smooth Servo stepping)
+
+  // ---- Dynamic Pin Parser ----
+  int parsePinString(const char* pinStr);         // Extracts GPIO pin number from "GPIO 12", "12", etc.
+
+  // ---- Device Control ----
+  void setLight(const char* deviceId, bool on, int explicitPin = -1); // Toggle light by device ID or dynamic pin
+  void setAllLights(bool on);                     // Batch toggle all zonal lights (1 to 5)
+  bool getLightState(const char* deviceId);        // Query current state by device ID
+
+  // ---- Boom Gate Control ----
+  void setGate(bool open, int explicitPin = -1);  // Open (90°) or Close (0°) Boom Gate
+  bool isGateOpen();                              // Returns true if gate is currently opened
+  int  getGateAngle();                            // Returns current servo angle (0 to 90)
+  void setGatePin(int pin);                       // Reconfigure servo GPIO pin dynamically
+
+  // ---- Status Reporting & Cloud Sync ----
+  String getJsonState();                          // Returns full device state as JSON
+  void   syncAllToCloud();                        // Report all restored device states to cloud
+}
