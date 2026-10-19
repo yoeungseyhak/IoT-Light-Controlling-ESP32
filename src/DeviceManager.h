@@ -41,6 +41,8 @@ namespace DeviceManager {
   constexpr int PIN_BOOM_GATE_SERVO = 27;  // SG90 Servo Signal (PWM GPIO 27)
   constexpr int GATE_ANGLE_CLOSED   = 0;   // 0° = Barrier horizontal (Closed)
   constexpr int GATE_ANGLE_OPEN     = 90;  // 90° = Barrier vertical (Open)
+  constexpr bool GATE_INVERT_DIR    = false; // Set to true if physical mounting is inverted (90° Closed, 0° Open)
+  constexpr unsigned long GATE_AUTO_CLOSE_MS = 10UL * 60UL * 1000UL; // 10 minutes auto-close countdown
 
   // ---- Sound Sensor (Double Clap Detection) ----
   constexpr int PIN_SOUND_SENSOR       = 35;          // Sound Sensor Digital Output DO (GPIO 35)
@@ -65,6 +67,7 @@ namespace DeviceManager {
   bool isGateOpen();                              // Returns true if gate is currently opened
   int  getGateAngle();                            // Returns current servo angle (0 to 90)
   void setGatePin(int pin);                       // Reconfigure servo GPIO pin dynamically
+  unsigned long getGateAutoCloseRemainingSec();   // Remaining seconds before auto-close (0 if closed)
 
   // ---- Status Reporting & Cloud Sync ----
   String getJsonState();                          // Returns full device state as JSON

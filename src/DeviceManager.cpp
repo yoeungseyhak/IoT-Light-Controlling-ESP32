@@ -27,8 +27,11 @@ namespace DeviceManager {
   static int currentGateAngle = GATE_ANGLE_CLOSED;
   static int targetGateAngle  = GATE_ANGLE_CLOSED;
   static unsigned long lastServoStepMs = 0;
-  constexpr unsigned long SERVO_STEP_INTERVAL_MS = 15; // 15ms per degree for smooth non-blocking motion
+  static unsigned long servoHoldUntilMs = 0;
+  static unsigned long gateOpenedTimeMs = 0; // Tracks 10-minute auto-close timer
+  constexpr unsigned long SERVO_STEP_INTERVAL_MS = 20; // 20ms per degree for smooth, realistic movement
   static bool servoInitialized = false;
+  static bool servoActive = false;
 
   // ---------------------------------------------------------------------------
   // initServoPwm() — Configure ESP32 LEDC PWM timer for 50Hz Servo control
@@ -43,6 +46,17 @@ namespace DeviceManager {
 #endif
     servoInitialized = true;
     servoPin = pin;
+  }
+
+  // ---------------------------------------------------------------------------
+  // stopServoPwm() — Stop pulses to relax the motor and prevent jitter / brownouts
+  // ---------------------------------------------------------------------------
+  static void stopServoPwm() {
+#if defined(ESP_ARDUINO_VERSION) && (ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0))
+    ledcWrite(servoPin, 0); // Duty 0 = Flat 0V (no 50Hz pulses)
+#else
+    ledcWrite(7, 0);
+#endif
   }
 
   // ---------------------------------------------------------------------------
@@ -113,6 +127,20 @@ namespace DeviceManager {
   constexpr unsigned long CLAP_COOLDOWN_MS     = 600; // Cooldown after double clap trigger
 
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // getTargetAngle() — Returns servo target angle respecting inversion config
+  // GATE_INVERT_DIR == false: Closed = 0°, Open = 90°
+  // GATE_INVERT_DIR == true:  Closed = 90°, Open = 0°
+  // ---------------------------------------------------------------------------
+  static inline int getTargetAngle(bool open) {
+    if (GATE_INVERT_DIR) {
+      return open ? GATE_ANGLE_CLOSED : GATE_ANGLE_OPEN;
+    } else {
+      return open ? GATE_ANGLE_OPEN : GATE_ANGLE_CLOSED;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // loadStates() — Restore states from NVS Flash across reboots
   // ---------------------------------------------------------------------------
   static void loadStates() {
@@ -124,7 +152,7 @@ namespace DeviceManager {
     stateLight5 = devPrefs.getBool("l5", false);
     stateParty  = devPrefs.getBool("pty", false);
     stateGateOpen = devPrefs.getBool("gate", false);
-    currentGateAngle = stateGateOpen ? GATE_ANGLE_OPEN : GATE_ANGLE_CLOSED;
+    currentGateAngle = getTargetAngle(stateGateOpen);
     targetGateAngle  = currentGateAngle;
     devPrefs.end();
 
@@ -203,16 +231,27 @@ namespace DeviceManager {
     digitalWrite(PIN_LIGHT3, stateLight3 ? HIGH : LOW);
     saveStates();
 
-    // Configure Boom Gate SG90 Servo (GPIO 27, 0° to 90°)
-    initServoPwm(servoPin);
-    writeServoDuty(currentGateAngle);
+    // Configure Boom Gate SG90 Servo (GPIO 27)
+    // CRITICAL: Do NOT write PWM pulses on boot! Keep signal line LOW to leave
+    // servo unpowered/idle, staying motionless in its physical position without twitching.
+    pinMode(servoPin, OUTPUT);
+    digitalWrite(servoPin, LOW);
+    servoActive = false;
+
+    // If gate was recorded as OPEN before reboot, start 10-minute auto-close timer
+    if (stateGateOpen) {
+      gateOpenedTimeMs = millis();
+      Serial.println("[BOOM GATE] Gate was OPEN before reboot: 10-minute auto-close countdown armed.");
+    } else {
+      gateOpenedTimeMs = 0;
+    }
 
     // Configure Sound Sensor (GPIO 35) for Double Clap Detection
     pinMode(PIN_SOUND_SENSOR, INPUT);
     lastSoundState = digitalRead(PIN_SOUND_SENSOR);
 
     Serial.println("[DEVICE] All lights & rocker switches GPIO initialized.");
-    Serial.printf("[BOOM GATE] Servo initialized on GPIO %d -> %s (%d°)\n",
+    Serial.printf("[BOOM GATE] Servo idle on GPIO %d (No boot movement) -> State: %s (%d°)\n",
                   servoPin, stateGateOpen ? "OPEN" : "CLOSED", currentGateAngle);
     Serial.printf("[SWITCH] Boot positions: Light1=%s, Light2=%s, Light3=%s\n",
                   stateLight1 ? "ON (O)" : "OFF (-)",
@@ -295,18 +334,38 @@ namespace DeviceManager {
     }
 
     // -------------------------------------------------------------------------
-    // Smooth Boom Gate Servo Motion (Non-blocking stepping 15ms/degree)
+    // Smooth Boom Gate Servo Motion (Non-blocking stepping 20ms/degree)
     // -------------------------------------------------------------------------
-    if (currentGateAngle != targetGateAngle) {
-      if (now - lastServoStepMs >= SERVO_STEP_INTERVAL_MS) {
-        lastServoStepMs = now;
-        if (targetGateAngle > currentGateAngle) {
-          currentGateAngle++;
-        } else {
-          currentGateAngle--;
+    if (servoActive) {
+      if (currentGateAngle != targetGateAngle) {
+        if (now - lastServoStepMs >= SERVO_STEP_INTERVAL_MS) {
+          lastServoStepMs = now;
+          if (targetGateAngle > currentGateAngle) {
+            currentGateAngle++;
+          } else {
+            currentGateAngle--;
+          }
+          writeServoDuty(currentGateAngle);
+          servoHoldUntilMs = now + 800; // Hold PWM for 800ms after reaching target
         }
-        writeServoDuty(currentGateAngle);
+      } else {
+        // Target reached: hold briefly for mechanical completion, then cut PWM to eliminate jitter & heat
+        if (now >= servoHoldUntilMs) {
+          stopServoPwm();
+          servoActive = false;
+          Serial.printf("[BOOM GATE] Gate settled at %d° -> PWM detached (jitter-free & cool).\n", currentGateAngle);
+        }
       }
+    }
+
+    // -------------------------------------------------------------------------
+    // Boom Gate 10-Minute Auto-Close Watchdog
+    // -------------------------------------------------------------------------
+    if (stateGateOpen && gateOpenedTimeMs > 0 && (now - gateOpenedTimeMs >= GATE_AUTO_CLOSE_MS)) {
+      Serial.println("[BOOM GATE] ⏰ 10-minute timeout reached while OPEN! Auto-closing boom gate now...");
+      setGate(false);
+      // Immediately notify cloud / websites that gate auto-closed
+      AppWebSocket::sendStateReport("boom-gate", "{\"status\":\"closed\"}");
     }
 
     // -------------------------------------------------------------------------
@@ -476,11 +535,29 @@ namespace DeviceManager {
     if (explicitPin >= 0 && explicitPin != servoPin) {
       setGatePin(explicitPin);
     }
-    stateGateOpen = open;
-    targetGateAngle = open ? GATE_ANGLE_OPEN : GATE_ANGLE_CLOSED;
-    scheduleSave();
-    Serial.printf("[BOOM GATE] Gate set to %s (Target %d°, GPIO %d)\n",
-                  open ? "OPEN" : "CLOSED", targetGateAngle, servoPin);
+
+    int target = getTargetAngle(open);
+
+    if (stateGateOpen != open || currentGateAngle != target || !servoActive) {
+      stateGateOpen = open;
+      targetGateAngle = target;
+      servoActive = true;
+      lastServoStepMs = millis();
+      servoHoldUntilMs = millis() + 800;
+
+      // Start 10-minute auto-close countdown when opening; cancel when closing
+      if (stateGateOpen) {
+        gateOpenedTimeMs = millis();
+        Serial.println("[BOOM GATE] Gate opened -> 10-minute auto-close timer armed.");
+      } else {
+        gateOpenedTimeMs = 0;
+        Serial.println("[BOOM GATE] Gate closed -> Auto-close timer disarmed.");
+      }
+
+      scheduleSave();
+      Serial.printf("[BOOM GATE] Gate set to %s (Moving from %d° to %d°, GPIO %d)\n",
+                    open ? "OPEN" : "CLOSED", currentGateAngle, targetGateAngle, servoPin);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -498,13 +575,26 @@ namespace DeviceManager {
   }
 
   // ---------------------------------------------------------------------------
+  // getGateAutoCloseRemainingSec() — Query remaining seconds before auto-close
+  // ---------------------------------------------------------------------------
+  unsigned long getGateAutoCloseRemainingSec() {
+    if (!stateGateOpen || gateOpenedTimeMs == 0) return 0;
+    unsigned long elapsed = millis() - gateOpenedTimeMs;
+    if (elapsed >= GATE_AUTO_CLOSE_MS) return 0;
+    return (GATE_AUTO_CLOSE_MS - elapsed) / 1000UL;
+  }
+
+  // ---------------------------------------------------------------------------
   // setGatePin() — Reconfigure servo GPIO pin dynamically
   // ---------------------------------------------------------------------------
   void setGatePin(int pin) {
     if (pin >= 0 && pin <= 39 && pin != servoPin) {
+      stopServoPwm();
       servoPin = pin;
-      initServoPwm(servoPin);
-      writeServoDuty(currentGateAngle);
+      servoInitialized = false;
+      pinMode(servoPin, OUTPUT);
+      digitalWrite(servoPin, LOW);
+      servoActive = false;
       Serial.printf("[BOOM GATE] Servo pin reconfigured to GPIO %d\n", servoPin);
     }
   }
@@ -522,7 +612,8 @@ namespace DeviceManager {
     json += "\"party\":"  + String(stateParty  ? "true" : "false") + ",";
     json += "\"gate\":"   + String(stateGateOpen ? "true" : "false") + ",";
     json += "\"boomGate\":\"" + String(stateGateOpen ? "open" : "closed") + "\",";
-    json += "\"gateAngle\":" + String(currentGateAngle);
+    json += "\"gateAngle\":" + String(currentGateAngle) + ",";
+    json += "\"autoCloseSec\":" + String(getGateAutoCloseRemainingSec());
     json += "}";
     return json;
   }

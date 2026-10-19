@@ -193,9 +193,10 @@ namespace AppWebSocket {
     // ---- 1. Handle device-update commands ----
     if (strcmp(type, "device-update") == 0) {
       const char* triggeredBy = doc["triggeredBy"];
-      // Server system-init on connect: do NOT overwrite ESP32 restored NVS states!
-      if (triggeredBy && strcmp(triggeredBy, "system-init") == 0) {
-        Serial.println("[WS] Preserving ESP32 hardware states over system-init dump");
+      // Server system-init on connect or device echo: do NOT overwrite ESP32 hardware states!
+      if (triggeredBy && (strcmp(triggeredBy, "system-init") == 0 ||
+                          strcmp(triggeredBy, "device") == 0 ||
+                          strcmp(triggeredBy, "esp32") == 0)) {
         return;
       }
 
