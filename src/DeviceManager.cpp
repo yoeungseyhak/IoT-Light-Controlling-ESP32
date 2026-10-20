@@ -122,7 +122,9 @@ namespace DeviceManager {
 
   // ---- Sound Sensor State & Double Clap Detection Timing ----
   static int lastSoundState = HIGH;
+  static int soundBaseline = 2000; // Baseline midpoint voltage for AO microphone (0-4095)
   static int clapCount = 0;
+
   static unsigned long firstClapTimeMs = 0;
   static unsigned long lastClapActionMs = 0;
   constexpr unsigned long CLAP_MIN_INTERVAL_MS = 150; // Echo lockout after 1st clap
@@ -260,9 +262,24 @@ namespace DeviceManager {
       gateOpenedTimeMs = 0;
     }
 
-    // Configure Sound Sensor (GPIO 35) for Double Clap Detection
-    pinMode(PIN_SOUND_SENSOR, INPUT);
-    lastSoundState = digitalRead(PIN_SOUND_SENSOR);
+    analogSetAttenuation(ADC_11db);
+
+    // Configure Sound Sensor (GPIO 35): Supports AO (Analog) or DO (Digital)
+    if (SOUND_IS_ANALOG) {
+      long sum = 0;
+      for (int i = 0; i < 16; i++) {
+        sum += analogRead(PIN_SOUND_SENSOR);
+        delay(2);
+      }
+      soundBaseline = sum / 16;
+      Serial.printf("[SOUND] AO Analog Mode calibrated on GPIO %d -> Baseline: %d (Spike Threshold: +/-%d)\n",
+                    PIN_SOUND_SENSOR, soundBaseline, SOUND_ANALOG_THRESHOLD);
+    } else {
+      pinMode(PIN_SOUND_SENSOR, INPUT);
+      lastSoundState = digitalRead(PIN_SOUND_SENSOR);
+      Serial.printf("[SOUND] DO Digital Mode initialized on GPIO %d (Active %s)\n",
+                    PIN_SOUND_SENSOR, SOUND_ACTIVE_LOW ? "LOW" : "HIGH");
+    }
 
     Serial.println("[DEVICE] All lights & rocker switches GPIO initialized.");
     Serial.printf("[BOOM GATE] Servo idle on GPIO %d (No boot movement) -> State: %s (%d°)\n",
@@ -271,10 +288,9 @@ namespace DeviceManager {
                   stateLight1 ? "ON (O)" : "OFF (-)",
                   stateLight2 ? "ON (O)" : "OFF (-)",
                   stateLight3 ? "ON (O)" : "OFF (-)");
-    Serial.printf("[SOUND] Initialized on GPIO %d -> Double Clap targets '%s' (%s)\n",
-                  PIN_SOUND_SENSOR, SOUND_TARGET, SOUND_TOGGLE_MODE ? "Toggle" : "Turn ON");
+    Serial.printf("[SOUND] Sound Sensor initialized on GPIO %d -> Target: '%s', Sound Relay: GPIO %d\n",
+                  PIN_SOUND_SENSOR, SOUND_TARGET, PIN_RELAY_SOUND);
 
-    analogSetAttenuation(ADC_11db);
   }
 
   // ---------------------------------------------------------------------------
@@ -338,9 +354,9 @@ namespace DeviceManager {
       int rawValue = analogRead(PIN_LDR);
 
       // Night detection: In dark, ADC voltage drops below threshold (e.g. <= 300)
-      bool desiredRelay = LDR_DARK_IS_LOW ? (rawValue <= LDR_DARK_THRESHOLD) : (rawValue >= LDR_DARK_THRESHOLD);
-
-      if (desiredRelay != stateRelayLdr) {
+      bool desiredRelay = rawValue <= LDR_DARK_THRESHOLD;
+      if (desiredRelay != stateRelayLdr)
+      {
         stateRelayLdr = desiredRelay;
         digitalWrite(PIN_RELAY_LDR, stateRelayLdr ? HIGH : LOW);
         Serial.printf("[LDR->LIGHT] Raw ADC: %d (Threshold: %d) -> %s detected. Light Relay (GPIO %d) is %s\n",
@@ -405,12 +421,26 @@ namespace DeviceManager {
     }
 
     // -------------------------------------------------------------------------
-    // Relay 2 (GPIO 15) & Sound Sensor: Toggle ON/OFF on Sound Detection
+    // Relay 2 (GPIO 15) & Sound Sensor: Toggle ON/OFF on Sound Detection (AO or DO)
     // -------------------------------------------------------------------------
-    int soundVal = digitalRead(PIN_SOUND_SENSOR);
-    bool soundTriggered = SOUND_ACTIVE_LOW ? (soundVal == LOW && lastSoundState == HIGH)
-                                           : (soundVal == HIGH && lastSoundState == LOW);
-    lastSoundState = soundVal;
+    bool soundTriggered = false;
+
+    if (SOUND_IS_ANALOG) {
+      int sample = analogRead(PIN_SOUND_SENSOR);
+      int diff = abs(sample - soundBaseline);
+
+      if (diff > SOUND_ANALOG_THRESHOLD) {
+        soundTriggered = true;
+      } else {
+        // Slowly adapt baseline to room noise / ambient drift when quiet
+        soundBaseline = (soundBaseline * 31 + sample) / 32;
+      }
+    } else {
+      int soundVal = digitalRead(PIN_SOUND_SENSOR);
+      soundTriggered = SOUND_ACTIVE_LOW ? (soundVal == LOW && lastSoundState == HIGH)
+                                        : (soundVal == HIGH && lastSoundState == LOW);
+      lastSoundState = soundVal;
+    }
 
     // Cooldown check (prevent immediate re-trigger after action)
     if (now - lastClapActionMs > CLAP_COOLDOWN_MS) {

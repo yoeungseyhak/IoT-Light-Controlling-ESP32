@@ -53,12 +53,15 @@ namespace DeviceManager {
   constexpr bool GATE_INVERT_DIR    = false; // Set to true if physical mounting is inverted (90° Closed, 0° Open)
   constexpr unsigned long GATE_AUTO_CLOSE_MS = 10UL * 60UL * 1000UL; // 10 minutes auto-close countdown
 
-  // ---- Sound Sensor (Detection & Claps) ----
-  constexpr int PIN_SOUND_SENSOR            = 35;          // Sound Sensor Digital Output DO (GPIO 35)
-  constexpr bool SOUND_ACTIVE_LOW           = true;        // Standard LM393 sensor pulls DO LOW on sound
+  // ---- Sound Sensor (Supports both AO Analog and DO Digital) ----
+  constexpr int PIN_SOUND_SENSOR            = 35;          // Sound Sensor connected to GPIO 35 (ADC1_CH7)
+  constexpr bool SOUND_IS_ANALOG            = true;        // Set to true when connected to AO; false if connected to DO
+  constexpr int SOUND_ANALOG_THRESHOLD      = 400;         // Sensitivity for AO: sound spike deviation above baseline (0 - 4095)
+  constexpr bool SOUND_ACTIVE_LOW           = true;        // For DO pin only: standard LM393 sensor pulls DO LOW on sound
   constexpr const char* SOUND_TARGET        = "light-1";   // Target device ("light-1", "all_lights", etc.)
   constexpr bool SOUND_TOGGLE_MODE          = true;        // true: toggle ON/OFF, false: turn ON only
   constexpr bool SOUND_REQUIRE_DOUBLE_CLAP  = false;       // false: toggle on any single sound/clap; true: require 2 claps
+
 
 
   // ---- Lifecycle ----
