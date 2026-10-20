@@ -26,7 +26,16 @@ namespace DeviceManager {
   // ---- Dedicated LDR Sensor & Relay Control (No storage, pure real-time) ----
   constexpr int PIN_LDR                        = 34;   // LDR Sensor Input (GPIO 34, ADC1_CH6)
   constexpr int PIN_RELAY_LDR                  = 23;   // Relay / Light Output Pin (GPIO 23)
-  // Logic: analogRead == 0 -> Night (Light/Relay ON) | analogRead > 0 -> Day (Light/Relay OFF)
+  // LDR Dark / Night Threshold (0 - 4095):
+  // With 10k resistor to GND & LDR to 3.3V, dark reading is low (< 300)
+  constexpr int LDR_DARK_THRESHOLD             = 300;  // Readings below this value trigger Night (Light ON)
+  constexpr bool LDR_DARK_IS_LOW               = true; // true: Dark = Low ADC (LDR to 3.3V, 10k to GND); false: Dark = High ADC
+
+  // ---- Added Relay 1: Switch Key Hold Relay (GPIO 14) ----
+  constexpr int PIN_RELAY_SWITCH_HOLD          = 14;   // Turns ON while ANY switch key is held, OFF when released
+
+  // ---- Added Relay 2: Sound Sensor Relay (GPIO 15) ----
+  constexpr int PIN_RELAY_SOUND                = 15;   // Toggles ON/OFF each time sound/clap is detected
 
   // ---- 2-Position Rocker Switch ('O' = ON, '-' = OFF) for Lights 1, 2, 3 ----
   constexpr int PIN_SW_LIGHT1       = 19;   // Rocker Switch 1 (GPIO 19 -> Light 1)
@@ -44,11 +53,13 @@ namespace DeviceManager {
   constexpr bool GATE_INVERT_DIR    = false; // Set to true if physical mounting is inverted (90° Closed, 0° Open)
   constexpr unsigned long GATE_AUTO_CLOSE_MS = 10UL * 60UL * 1000UL; // 10 minutes auto-close countdown
 
-  // ---- Sound Sensor (Double Clap Detection) ----
-  constexpr int PIN_SOUND_SENSOR       = 35;          // Sound Sensor Digital Output DO (GPIO 35)
-  constexpr bool SOUND_ACTIVE_LOW      = true;        // Standard LM393 sensor pulls DO LOW on sound
-  constexpr const char* SOUND_TARGET   = "light-1";   // Target device ("light-1", "all_lights", etc.)
-  constexpr bool SOUND_TOGGLE_MODE     = true;        // true: toggle ON/OFF, false: turn ON only
+  // ---- Sound Sensor (Detection & Claps) ----
+  constexpr int PIN_SOUND_SENSOR            = 35;          // Sound Sensor Digital Output DO (GPIO 35)
+  constexpr bool SOUND_ACTIVE_LOW           = true;        // Standard LM393 sensor pulls DO LOW on sound
+  constexpr const char* SOUND_TARGET        = "light-1";   // Target device ("light-1", "all_lights", etc.)
+  constexpr bool SOUND_TOGGLE_MODE          = true;        // true: toggle ON/OFF, false: turn ON only
+  constexpr bool SOUND_REQUIRE_DOUBLE_CLAP  = false;       // false: toggle on any single sound/clap; true: require 2 claps
+
 
   // ---- Lifecycle ----
   void init();                                    // Configure all GPIO pins & LDR sensor

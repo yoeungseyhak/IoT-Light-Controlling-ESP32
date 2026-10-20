@@ -20,6 +20,9 @@ namespace DeviceManager {
   static bool stateLight5 = false;
   static bool stateParty  = false;
   static bool stateRelayLdr = false;
+  static bool stateRelaySwitchHold = false;
+  static bool stateRelaySound = false;
+
 
   // ---- Boom Gate Servo State & Timing (SG90 180° restricted to 0° - 90°) ----
   static int servoPin = PIN_BOOM_GATE_SERVO;
@@ -205,12 +208,23 @@ namespace DeviceManager {
 
     // Configure Dedicated LDR Sensor (GPIO 34, ADC1_CH6) and Relay (GPIO 23)
     // Pure real-time sensing: NO storage / NVS flash used for LDR data
-    pinMode(PIN_LDR, INPUT);
+    // pinMode(PIN_LDR, INPUT);
+    
     pinMode(PIN_RELAY_LDR, OUTPUT);
-
     digitalWrite(PIN_RELAY_LDR, LOW);
 
+    // Configure Added Relay 1: Switch Key Hold (GPIO 14)
+    pinMode(PIN_RELAY_SWITCH_HOLD, OUTPUT);
+    digitalWrite(PIN_RELAY_SWITCH_HOLD, LOW);
+    stateRelaySwitchHold = false;
+
+    // Configure Added Relay 2: Sound Sensor (GPIO 15)
+    pinMode(PIN_RELAY_SOUND, OUTPUT);
+    digitalWrite(PIN_RELAY_SOUND, LOW);
+    stateRelaySound = false;
+
     // Configure Physical Rocker Switches on GPIO 19, 21, 22
+
     pinMode(PIN_SW_LIGHT1, INPUT_PULLUP);
     pinMode(PIN_SW_LIGHT2, INPUT_PULLUP);
     pinMode(PIN_SW_LIGHT3, INPUT_PULLUP);
@@ -259,6 +273,8 @@ namespace DeviceManager {
                   stateLight3 ? "ON (O)" : "OFF (-)");
     Serial.printf("[SOUND] Initialized on GPIO %d -> Double Clap targets '%s' (%s)\n",
                   PIN_SOUND_SENSOR, SOUND_TARGET, SOUND_TOGGLE_MODE ? "Toggle" : "Turn ON");
+
+    analogSetAttenuation(ADC_11db);
   }
 
   // ---------------------------------------------------------------------------
@@ -314,24 +330,44 @@ namespace DeviceManager {
 
     // -------------------------------------------------------------------------
     // LDR Sensor (GPIO 34) Controls Light Relay (GPIO 23): Pure Real-Time (No Storage)
-    // Analog == 0 -> Night (Light ON) | Analog > 0 -> Day (Light OFF)
+    // Dark: ADC value drops below threshold -> Night (Relay ON)
+    // Light: ADC value rises above threshold -> Day (Relay OFF)
     // -------------------------------------------------------------------------
     if (now - lastLdrCheckMs >= LDR_CHECK_INTERVAL_MS) {
       lastLdrCheckMs = now;
-      int rawLdr = analogRead(PIN_LDR);
+      int rawValue = analogRead(PIN_LDR);
 
-      // 0 = Night -> Turn ON light (Relay Pin 23 HIGH)
-      // > 0 = Day -> Turn OFF light (Relay Pin 23 LOW)
-      // Pure in-memory check, zero storage writes
-      bool desiredRelay = (rawLdr == 0);
+      // Night detection: In dark, ADC voltage drops below threshold (e.g. <= 300)
+      bool desiredRelay = LDR_DARK_IS_LOW ? (rawValue <= LDR_DARK_THRESHOLD) : (rawValue >= LDR_DARK_THRESHOLD);
 
       if (desiredRelay != stateRelayLdr) {
         stateRelayLdr = desiredRelay;
         digitalWrite(PIN_RELAY_LDR, stateRelayLdr ? HIGH : LOW);
-        Serial.printf("[LDR->LIGHT] Analog: %d -> %s detected. Light (GPIO %d) is %s\n",
-                      rawLdr, stateRelayLdr ? "NIGHT (0)" : "DAY (>0)", PIN_RELAY_LDR, stateRelayLdr ? "ON" : "OFF");
+        Serial.printf("[LDR->LIGHT] Raw ADC: %d (Threshold: %d) -> %s detected. Light Relay (GPIO %d) is %s\n",
+                      rawValue, LDR_DARK_THRESHOLD, stateRelayLdr ? "NIGHT" : "DAY", PIN_RELAY_LDR, stateRelayLdr ? "ON" : "OFF");
       }
     }
+
+    // -------------------------------------------------------------------------
+    // Added Relay 1 (GPIO 14): Turn ON while ANY switch key is held, OFF when released
+    // -------------------------------------------------------------------------
+    bool anySwitchHeld = (digitalRead(PIN_SW_LIGHT1) == LOW) ||
+                         (digitalRead(PIN_SW_LIGHT2) == LOW) ||
+                         (digitalRead(PIN_SW_LIGHT3) == LOW) ||
+                         (digitalRead(32) == LOW) ||
+                         (digitalRead(33) == LOW) ||
+                         (digitalRead(25) == LOW) ||
+                         (digitalRead(26) == LOW);
+
+    if (anySwitchHeld != stateRelaySwitchHold) {
+      stateRelaySwitchHold = anySwitchHeld;
+      digitalWrite(PIN_RELAY_SWITCH_HOLD, stateRelaySwitchHold ? HIGH : LOW);
+      Serial.printf("[RELAY-HOLD] Any switch key %s -> Relay (GPIO %d) is %s\n",
+                    stateRelaySwitchHold ? "HELD DOWN" : "RELEASED",
+                    PIN_RELAY_SWITCH_HOLD,
+                    stateRelaySwitchHold ? "ON" : "OFF");
+    }
+
 
     // -------------------------------------------------------------------------
     // Smooth Boom Gate Servo Motion (Non-blocking stepping 20ms/degree)
@@ -369,7 +405,7 @@ namespace DeviceManager {
     }
 
     // -------------------------------------------------------------------------
-    // Sound Sensor: Double Clap Detection (👏 👏)
+    // Relay 2 (GPIO 15) & Sound Sensor: Toggle ON/OFF on Sound Detection
     // -------------------------------------------------------------------------
     int soundVal = digitalRead(PIN_SOUND_SENSOR);
     bool soundTriggered = SOUND_ACTIVE_LOW ? (soundVal == LOW && lastSoundState == HIGH)
@@ -379,25 +415,41 @@ namespace DeviceManager {
     // Cooldown check (prevent immediate re-trigger after action)
     if (now - lastClapActionMs > CLAP_COOLDOWN_MS) {
       if (soundTriggered) {
-        if (clapCount == 0) {
-          // First clap registered
-          clapCount = 1;
-          firstClapTimeMs = now;
-          Serial.println("[SOUND] 👏 First clap detected! Listening for 2nd clap...");
-        } else if (clapCount == 1) {
-          unsigned long interval = now - firstClapTimeMs;
-          if (interval >= CLAP_MIN_INTERVAL_MS && interval <= CLAP_MAX_INTERVAL_MS) {
-            // Second clap registered within valid window!
-            clapCount = 0;
-            lastClapActionMs = now;
+        if (!SOUND_REQUIRE_DOUBLE_CLAP) {
+          // Toggle sound relay immediately on single sound/clap
+          lastClapActionMs = now;
+          stateRelaySound = !stateRelaySound;
+          digitalWrite(PIN_RELAY_SOUND, stateRelaySound ? HIGH : LOW);
+          Serial.printf("[RELAY-SOUND] 🔊 Sound detected! Sound Relay (GPIO %d) toggled to %s\n",
+                        PIN_RELAY_SOUND, stateRelaySound ? "ON" : "OFF");
 
+          if (SOUND_TOGGLE_MODE) {
             bool curState = getLightState(SOUND_TARGET);
-            bool newState = SOUND_TOGGLE_MODE ? !curState : true;
-            setLight(SOUND_TARGET, newState);
-            AppWebSocket::sendStateReport(SOUND_TARGET, newState ? "{\"on\":true}" : "{\"on\":false}");
+            setLight(SOUND_TARGET, !curState);
+            AppWebSocket::sendStateReport(SOUND_TARGET, !curState ? "{\"on\":true}" : "{\"on\":false}");
+          }
+        } else {
+          // Double clap mode
+          if (clapCount == 0) {
+            clapCount = 1;
+            firstClapTimeMs = now;
+            Serial.println("[SOUND] 👏 First clap detected! Listening for 2nd clap...");
+          } else if (clapCount == 1) {
+            unsigned long interval = now - firstClapTimeMs;
+            if (interval >= CLAP_MIN_INTERVAL_MS && interval <= CLAP_MAX_INTERVAL_MS) {
+              clapCount = 0;
+              lastClapActionMs = now;
+              stateRelaySound = !stateRelaySound;
+              digitalWrite(PIN_RELAY_SOUND, stateRelaySound ? HIGH : LOW);
 
-            Serial.printf("[SOUND] 👏 👏 Double Clap Confirmed! (%lums) -> %s is %s & Synced\n",
-                          interval, SOUND_TARGET, newState ? "ON" : "OFF");
+              bool curState = getLightState(SOUND_TARGET);
+              bool newState = SOUND_TOGGLE_MODE ? !curState : true;
+              setLight(SOUND_TARGET, newState);
+              AppWebSocket::sendStateReport(SOUND_TARGET, newState ? "{\"on\":true}" : "{\"on\":false}");
+
+              Serial.printf("[RELAY-SOUND] 👏 👏 Double Clap Confirmed! (%lums) -> Sound Relay (GPIO %d) is %s, %s is %s\n",
+                            interval, PIN_RELAY_SOUND, stateRelaySound ? "ON" : "OFF", SOUND_TARGET, newState ? "ON" : "OFF");
+            }
           }
         }
       }
@@ -408,6 +460,7 @@ namespace DeviceManager {
         Serial.println("[SOUND] Single clap timed out (ignored).");
       }
     }
+
 
     // -------------------------------------------------------------------------
     // Deferred NVS Flash Persistence (Flush pending saves smoothly without lag)
