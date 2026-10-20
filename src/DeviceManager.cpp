@@ -16,9 +16,8 @@ namespace DeviceManager {
   static bool stateLight1 = false;
   static bool stateLight2 = false;
   static bool stateLight3 = false;
-  static bool stateLight4 = false;
-  static bool stateLight5 = false;
   static bool stateParty  = false;
+
   static bool stateRelayLdr = false;
   static bool stateRelaySwitchHold = false;
   static bool stateRelaySound = false;
@@ -107,8 +106,6 @@ namespace DeviceManager {
     devPrefs.putBool("l1", stateLight1);
     devPrefs.putBool("l2", stateLight2);
     devPrefs.putBool("l3", stateLight3);
-    devPrefs.putBool("l4", stateLight4);
-    devPrefs.putBool("l5", stateLight5);
     devPrefs.putBool("pty", stateParty);
     devPrefs.putBool("gate", stateGateOpen);
     devPrefs.end();
@@ -153,8 +150,6 @@ namespace DeviceManager {
     stateLight1 = devPrefs.getBool("l1", false);
     stateLight2 = devPrefs.getBool("l2", false);
     stateLight3 = devPrefs.getBool("l3", false);
-    stateLight4 = devPrefs.getBool("l4", false);
-    stateLight5 = devPrefs.getBool("l5", false);
     stateParty  = devPrefs.getBool("pty", false);
     stateGateOpen = devPrefs.getBool("gate", false);
     currentGateAngle = getTargetAngle(stateGateOpen);
@@ -162,12 +157,11 @@ namespace DeviceManager {
     devPrefs.end();
 
     Serial.println("[DEVICE] Restored actuator states from NVS Flash:");
-    Serial.printf("  Light 1: %s | Light 2: %s | Light 3: %s\n",
-                  stateLight1 ? "ON" : "OFF", stateLight2 ? "ON" : "OFF", stateLight3 ? "ON" : "OFF");
-    Serial.printf("  Light 4: %s | Light 5: %s | Party: %s | Gate: %s (%d°)\n",
-                  stateLight4 ? "ON" : "OFF", stateLight5 ? "ON" : "OFF",
+    Serial.printf("  Light 1: %s | Light 2: %s | Light 3: %s | Party: %s | Gate: %s (%d°)\n",
+                  stateLight1 ? "ON" : "OFF", stateLight2 ? "ON" : "OFF", stateLight3 ? "ON" : "OFF",
                   stateParty ? "ON" : "OFF", stateGateOpen ? "OPEN" : "CLOSED", currentGateAngle);
   }
+
 
   // ---------------------------------------------------------------------------
   // parsePinString() — Extract GPIO pin integer from strings like "GPIO 12", "12"
@@ -199,31 +193,30 @@ namespace DeviceManager {
     pinMode(PIN_LIGHT3, OUTPUT);
     digitalWrite(PIN_LIGHT3, stateLight3 ? HIGH : LOW);
 
-    pinMode(PIN_LIGHT4, OUTPUT);
-    digitalWrite(PIN_LIGHT4, stateLight4 ? HIGH : LOW);
-
-    pinMode(PIN_LIGHT5, OUTPUT);
-    digitalWrite(PIN_LIGHT5, stateLight5 ? HIGH : LOW);
-
     pinMode(PIN_PARTY_LIGHT, OUTPUT);
     digitalWrite(PIN_PARTY_LIGHT, stateParty ? HIGH : LOW);
 
     // Configure Dedicated LDR Sensor (GPIO 34, ADC1_CH6) and Relay (GPIO 23)
-    // Pure real-time sensing: NO storage / NVS flash used for LDR data
-    // pinMode(PIN_LDR, INPUT);
-    
     pinMode(PIN_RELAY_LDR, OUTPUT);
     digitalWrite(PIN_RELAY_LDR, LOW);
 
-    // Configure Added Relay 1: Switch Key Hold (GPIO 14)
+    // Configure Light Relay on Pin 14 (Controlled by 5 Switch Buttons)
     pinMode(PIN_RELAY_SWITCH_HOLD, OUTPUT);
     digitalWrite(PIN_RELAY_SWITCH_HOLD, LOW);
     stateRelaySwitchHold = false;
+
+    // Configure 5 Switch Buttons for Pin 14 (GPIO 12, 13, 16, 17, 25)
+    pinMode(PIN_SW_HOLD1, INPUT_PULLUP);
+    pinMode(PIN_SW_HOLD2, INPUT_PULLUP);
+    pinMode(PIN_SW_HOLD3, INPUT_PULLUP);
+    pinMode(PIN_SW_HOLD4, INPUT_PULLUP);
+    pinMode(PIN_SW_HOLD5, INPUT_PULLUP);
 
     // Configure Added Relay 2: Sound Sensor (GPIO 15)
     pinMode(PIN_RELAY_SOUND, OUTPUT);
     digitalWrite(PIN_RELAY_SOUND, LOW);
     stateRelaySound = false;
+
 
     // Configure Physical Rocker Switches on GPIO 19, 21, 22
 
@@ -365,24 +358,24 @@ namespace DeviceManager {
     }
 
     // -------------------------------------------------------------------------
-    // Added Relay 1 (GPIO 14): Turn ON while ANY switch key is held, OFF when released
+    // Relay (GPIO 14): Controlled by 5 Switch Buttons (GPIO 12, 13, 16, 17, 25)
+    // Turn ON while ANY of the 5 switches is held down (LOW), OFF when released
     // -------------------------------------------------------------------------
-    bool anySwitchHeld = (digitalRead(PIN_SW_LIGHT1) == LOW) ||
-                         (digitalRead(PIN_SW_LIGHT2) == LOW) ||
-                         (digitalRead(PIN_SW_LIGHT3) == LOW) ||
-                         (digitalRead(32) == LOW) ||
-                         (digitalRead(33) == LOW) ||
-                         (digitalRead(25) == LOW) ||
-                         (digitalRead(26) == LOW);
+    bool anyHoldSwitchActive = (digitalRead(PIN_SW_HOLD1) == LOW) ||
+                               (digitalRead(PIN_SW_HOLD2) == LOW) ||
+                               (digitalRead(PIN_SW_HOLD3) == LOW) ||
+                               (digitalRead(PIN_SW_HOLD4) == LOW) ||
+                               (digitalRead(PIN_SW_HOLD5) == LOW);
 
-    if (anySwitchHeld != stateRelaySwitchHold) {
-      stateRelaySwitchHold = anySwitchHeld;
+    if (anyHoldSwitchActive != stateRelaySwitchHold) {
+      stateRelaySwitchHold = anyHoldSwitchActive;
       digitalWrite(PIN_RELAY_SWITCH_HOLD, stateRelaySwitchHold ? HIGH : LOW);
-      Serial.printf("[RELAY-HOLD] Any switch key %s -> Relay (GPIO %d) is %s\n",
+      Serial.printf("[RELAY-PIN14] 5-Switch Button %s -> Light on GPIO %d is %s\n",
                     stateRelaySwitchHold ? "HELD DOWN" : "RELEASED",
                     PIN_RELAY_SWITCH_HOLD,
                     stateRelaySwitchHold ? "ON" : "OFF");
     }
+
 
 
     // -------------------------------------------------------------------------
@@ -435,13 +428,14 @@ namespace DeviceManager {
         // Slowly adapt baseline to room noise / ambient drift when quiet
         soundBaseline = (soundBaseline * 31 + sample) / 32;
       }
+      Serial.printf("Sound: %d \n", diff);
     } else {
       int soundVal = digitalRead(PIN_SOUND_SENSOR);
       soundTriggered = SOUND_ACTIVE_LOW ? (soundVal == LOW && lastSoundState == HIGH)
                                         : (soundVal == HIGH && lastSoundState == LOW);
       lastSoundState = soundVal;
     }
-
+    
     // Cooldown check (prevent immediate re-trigger after action)
     if (now - lastClapActionMs > CLAP_COOLDOWN_MS) {
       if (soundTriggered) {
@@ -502,21 +496,17 @@ namespace DeviceManager {
   }
 
   // ---------------------------------------------------------------------------
-  // setAllLights() — Batch toggle all zonal lights (Light 1 to 5) & save to NVS
+  // setAllLights() — Batch toggle the 3 building lights & save to NVS
   // ---------------------------------------------------------------------------
   void setAllLights(bool on) {
     digitalWrite(PIN_LIGHT1, on ? HIGH : LOW);
     digitalWrite(PIN_LIGHT2, on ? HIGH : LOW);
     digitalWrite(PIN_LIGHT3, on ? HIGH : LOW);
-    digitalWrite(PIN_LIGHT4, on ? HIGH : LOW);
-    digitalWrite(PIN_LIGHT5, on ? HIGH : LOW);
     stateLight1 = on;
     stateLight2 = on;
     stateLight3 = on;
-    stateLight4 = on;
-    stateLight5 = on;
     scheduleSave(); // Persist smoothly without blocking
-    Serial.printf("[DEVICE] All zonal lights (1-5) -> %s\n", on ? "ON" : "OFF");
+    Serial.printf("[DEVICE] All 3 building lights -> %s\n", on ? "ON" : "OFF");
   }
 
   // ---------------------------------------------------------------------------
@@ -553,24 +543,7 @@ namespace DeviceManager {
         Serial.printf("[DEVICE] Light 3 (GPIO %d) -> %s\n", pin, on ? "ON" : "OFF");
         return;
       }
-      else if (strcmp(deviceId, "light-4") == 0 || strcmp(deviceId, "light4") == 0) {
-        int pin = (explicitPin >= 0) ? explicitPin : PIN_LIGHT4;
-        pinMode(pin, OUTPUT);
-        digitalWrite(pin, on ? HIGH : LOW);
-        stateLight4 = on;
-        scheduleSave();
-        Serial.printf("[DEVICE] Light 4 (GPIO %d) -> %s\n", pin, on ? "ON" : "OFF");
-        return;
-      }
-      else if (strcmp(deviceId, "light-5") == 0 || strcmp(deviceId, "light5") == 0) {
-        int pin = (explicitPin >= 0) ? explicitPin : PIN_LIGHT5;
-        pinMode(pin, OUTPUT);
-        digitalWrite(pin, on ? HIGH : LOW);
-        stateLight5 = on;
-        scheduleSave();
-        Serial.printf("[DEVICE] Light 5 (GPIO %d) -> %s\n", pin, on ? "ON" : "OFF");
-        return;
-      }
+
       else if (strcmp(deviceId, "party-light") == 0 || strcmp(deviceId, "party") == 0) {
         int pin = (explicitPin >= 0) ? explicitPin : PIN_PARTY_LIGHT;
         pinMode(pin, OUTPUT);
@@ -605,8 +578,6 @@ namespace DeviceManager {
     if (strcmp(deviceId, "light-1") == 0 || strcmp(deviceId, "light1") == 0) return stateLight1;
     if (strcmp(deviceId, "light-2") == 0 || strcmp(deviceId, "light2") == 0) return stateLight2;
     if (strcmp(deviceId, "light-3") == 0 || strcmp(deviceId, "light3") == 0) return stateLight3;
-    if (strcmp(deviceId, "light-4") == 0 || strcmp(deviceId, "light4") == 0) return stateLight4;
-    if (strcmp(deviceId, "light-5") == 0 || strcmp(deviceId, "light5") == 0) return stateLight5;
     if (strcmp(deviceId, "party-light") == 0 || strcmp(deviceId, "party") == 0) return stateParty;
     return false;
   }
@@ -690,8 +661,6 @@ namespace DeviceManager {
     json += "\"light1\":" + String(stateLight1 ? "true" : "false") + ",";
     json += "\"light2\":" + String(stateLight2 ? "true" : "false") + ",";
     json += "\"light3\":" + String(stateLight3 ? "true" : "false") + ",";
-    json += "\"light4\":" + String(stateLight4 ? "true" : "false") + ",";
-    json += "\"light5\":" + String(stateLight5 ? "true" : "false") + ",";
     json += "\"party\":"  + String(stateParty  ? "true" : "false") + ",";
     json += "\"gate\":"   + String(stateGateOpen ? "true" : "false") + ",";
     json += "\"boomGate\":\"" + String(stateGateOpen ? "open" : "closed") + "\",";
@@ -708,8 +677,6 @@ namespace DeviceManager {
     AppWebSocket::sendStateReport("light-1", stateLight1 ? "{\"on\":true}" : "{\"on\":false}");
     AppWebSocket::sendStateReport("light-2", stateLight2 ? "{\"on\":true}" : "{\"on\":false}");
     AppWebSocket::sendStateReport("light-3", stateLight3 ? "{\"on\":true}" : "{\"on\":false}");
-    AppWebSocket::sendStateReport("light-4", stateLight4 ? "{\"on\":true}" : "{\"on\":false}");
-    AppWebSocket::sendStateReport("light-5", stateLight5 ? "{\"on\":true}" : "{\"on\":false}");
     AppWebSocket::sendStateReport("party-light", stateParty ? "{\"on\":true}" : "{\"on\":false}");
     AppWebSocket::sendStateReport("boom-gate", stateGateOpen ? "{\"status\":\"open\"}" : "{\"status\":\"closed\"}");
     Serial.println("[DEVICE] All restored actuator states (including Boom Gate) reported to cloud WebSocket.");

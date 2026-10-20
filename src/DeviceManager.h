@@ -15,13 +15,11 @@
 namespace DeviceManager {
 
   // ---- Pin Assignments (Matching Cloud & Web Dashboard) ----
-  constexpr int PIN_LIGHT1      = 4;   // Light 1 (Zone A)
-  constexpr int PIN_LIGHT2      = 5;   // Light 2 (Zone B)
-  constexpr int PIN_LIGHT3      = 18;   // Light 3 (Zone C)
-  constexpr int PIN_LIGHT4      = 12;  // Light 4 (Zone D)
-  constexpr int PIN_LIGHT5      = 13;  // Light 5 (Zone E)
-  constexpr int PIN_PARTY_LIGHT     = 2;    // Party / Beacon Light (Independent device, e.g. GPIO 2)
-  constexpr int PIN_LED_BOARD       = 2;    // Onboard LED
+  // Building Lights (3 Lights Only: Light 1, 2, 3)
+  constexpr int PIN_LIGHT1          = 4;    // Building Light 1 (Zone A)
+  constexpr int PIN_LIGHT2          = 5;    // Building Light 2 (Zone B)
+  constexpr int PIN_LIGHT3          = 18;   // Building Light 3 (Zone C)
+  constexpr int PIN_PARTY_LIGHT     = 2;    // Party Light ONLY (No other component shares Pin 2)
 
   // ---- Dedicated LDR Sensor & Relay Control (No storage, pure real-time) ----
   constexpr int PIN_LDR                        = 34;   // LDR Sensor Input (GPIO 34, ADC1_CH6)
@@ -31,20 +29,26 @@ namespace DeviceManager {
   constexpr int LDR_DARK_THRESHOLD             = 300;  // Readings below this value trigger Night (Light ON)
   constexpr bool LDR_DARK_IS_LOW               = true; // true: Dark = Low ADC (LDR to 3.3V, 10k to GND); false: Dark = High ADC
 
-  // ---- Added Relay 1: Switch Key Hold Relay (GPIO 14) ----
-  constexpr int PIN_RELAY_SWITCH_HOLD          = 14;   // Turns ON while ANY switch key is held, OFF when released
+  // ---- Light Relay on Pin 14 & 5 Switch Buttons ----
+  constexpr int PIN_RELAY_SWITCH_HOLD          = 14;   // Light Relay on Pin 14 (ON while ANY of 5 switches held, OFF when released)
+  constexpr int PIN_SW_HOLD1                   = 12;   // Switch Button 1 for Pin 14
+  constexpr int PIN_SW_HOLD2                   = 13;   // Switch Button 2 for Pin 14
+  constexpr int PIN_SW_HOLD3                   = 16;   // Switch Button 3 for Pin 14
+  constexpr int PIN_SW_HOLD4                   = 17;   // Switch Button 4 for Pin 14
+  constexpr int PIN_SW_HOLD5                   = 25;   // Switch Button 5 for Pin 14
 
   // ---- Added Relay 2: Sound Sensor Relay (GPIO 15) ----
   constexpr int PIN_RELAY_SOUND                = 15;   // Toggles ON/OFF each time sound/clap is detected
 
-  // ---- 2-Position Rocker Switch ('O' = ON, '-' = OFF) for Lights 1, 2, 3 ----
-  constexpr int PIN_SW_LIGHT1       = 19;   // Rocker Switch 1 (GPIO 19 -> Light 1)
-  constexpr int PIN_SW_LIGHT2       = 21;   // Rocker Switch 2 (GPIO 21 -> Light 2)
-  constexpr int PIN_SW_LIGHT3       = 22;   // Rocker Switch 3 (GPIO 22 -> Light 3)
+  // ---- 3 Building Light Switches (Strictly for Building Lights 1, 2, 3) ----
+  constexpr int PIN_SW_LIGHT1       = 19;   // Rocker Switch 1 (GPIO 19 -> Building Light 1)
+  constexpr int PIN_SW_LIGHT2       = 21;   // Rocker Switch 2 (GPIO 21 -> Building Light 2)
+  constexpr int PIN_SW_LIGHT3       = 22;   // Rocker Switch 3 (GPIO 22 -> Building Light 3)
   // Switch Polarity with INPUT_PULLUP:
   // Set to true if 'O' position is open (HIGH) and '-' is GND (LOW) [Standard]
   // Set to false if 'O' position is GND (LOW) and '-' is open (HIGH)
   constexpr bool SWITCH_O_IS_HIGH   = true;
+
 
   // ---- Boom Gate (SG90 Servo 180° restricted to 0° - 90°) ----
   constexpr int PIN_BOOM_GATE_SERVO = 27;  // SG90 Servo Signal (PWM GPIO 27)

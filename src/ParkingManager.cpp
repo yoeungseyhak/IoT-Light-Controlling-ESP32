@@ -34,13 +34,13 @@ namespace ParkingManager {
   // Pin assignments with internal pullup on ESP32:
   //   Slot 1: GPIO 32 (Switch to GND)
   //   Slot 2: GPIO 33 (Switch to GND)
-  //   Slot 3: GPIO 25 (Switch to GND)
-  //   Slot 4: GPIO 26 (Switch to GND)
+  //   Slot 3: GPIO 26 (Switch to GND)
+  //   Slot 4: Virtual / Manual (No pin conflict)
   static SlotConfig slots[MAX_SLOTS] = {
     { "slot-1", "Slot A1", METHOD_SWITCH, -1, -1, -1, 32, false, false, 0, 0 },
     { "slot-2", "Slot A2", METHOD_SWITCH, -1, -1, -1, 33, false, false, 0, 0 },
-    { "slot-3", "Slot A3", METHOD_SWITCH, -1, -1, -1, 25, false, false, 0, 0 },
-    { "slot-4", "Slot A4", METHOD_SWITCH, -1, -1, -1, 26, false, false, 0, 0 }
+    { "slot-3", "Slot A3", METHOD_SWITCH, -1, -1, -1, 26, false, false, 0, 0 },
+    { "slot-4", "Slot A4", METHOD_SWITCH, -1, -1, -1, -1, false, false, 0, 0 }
   };
 
   static const unsigned long POLL_INTERVAL_MS = 1500; // Ultrasonic check interval

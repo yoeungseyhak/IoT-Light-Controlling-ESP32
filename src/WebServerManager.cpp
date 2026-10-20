@@ -139,8 +139,6 @@ namespace AppWebServer {
     if (id == "light1") canonId = "light-1";
     else if (id == "light2") canonId = "light-2";
     else if (id == "light3") canonId = "light-3";
-    else if (id == "light4") canonId = "light-4";
-    else if (id == "light5") canonId = "light-5";
     else if (id == "party")  canonId = "party-light";
 
     DeviceManager::setLight(canonId.c_str(), on);
