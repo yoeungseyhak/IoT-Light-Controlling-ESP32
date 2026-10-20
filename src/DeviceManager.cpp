@@ -205,7 +205,7 @@ namespace DeviceManager {
     digitalWrite(PIN_RELAY_SWITCH_HOLD, LOW);
     stateRelaySwitchHold = false;
 
-    // Configure 5 Switch Buttons for Pin 14 (GPIO 12, 13, 16, 17, 25)
+    // Configure 5 Switch Buttons for Pin 14 (GPIO 13, 25, 26, 32, 33)
     pinMode(PIN_SW_HOLD1, INPUT_PULLUP);
     pinMode(PIN_SW_HOLD2, INPUT_PULLUP);
     pinMode(PIN_SW_HOLD3, INPUT_PULLUP);

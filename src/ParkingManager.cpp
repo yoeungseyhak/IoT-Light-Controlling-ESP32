@@ -30,16 +30,11 @@ namespace ParkingManager {
   constexpr int MAX_SLOTS = 16;
   static int numSlots = 4;
 
-  // Pre-configured parking slots (Defaulted to Mechanical Switch Keys for quick trick/simulation)
-  // Pin assignments with internal pullup on ESP32:
-  //   Slot 1: GPIO 32 (Switch to GND)
-  //   Slot 2: GPIO 33 (Switch to GND)
-  //   Slot 3: GPIO 26 (Switch to GND)
-  //   Slot 4: Virtual / Manual (No pin conflict)
+  // Pre-configured parking slots (Virtual / Managed via Cloud & Web)
   static SlotConfig slots[MAX_SLOTS] = {
-    { "slot-1", "Slot A1", METHOD_SWITCH, -1, -1, -1, 32, false, false, 0, 0 },
-    { "slot-2", "Slot A2", METHOD_SWITCH, -1, -1, -1, 33, false, false, 0, 0 },
-    { "slot-3", "Slot A3", METHOD_SWITCH, -1, -1, -1, 26, false, false, 0, 0 },
+    { "slot-1", "Slot A1", METHOD_SWITCH, -1, -1, -1, -1, false, false, 0, 0 },
+    { "slot-2", "Slot A2", METHOD_SWITCH, -1, -1, -1, -1, false, false, 0, 0 },
+    { "slot-3", "Slot A3", METHOD_SWITCH, -1, -1, -1, -1, false, false, 0, 0 },
     { "slot-4", "Slot A4", METHOD_SWITCH, -1, -1, -1, -1, false, false, 0, 0 }
   };
 
